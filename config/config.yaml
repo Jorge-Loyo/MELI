@@ -1,0 +1,21 @@
+api:
+  base_url: "https://api.mercadolibre.com"
+  token_url: "https://api.mercadolibre.com/oauth/token"
+  search_endpoint: "/sites/MLA/search"
+  items_endpoint: "/items/bulk"
+  users_endpoint: "/users/bulk"
+  currency_conversion_endpoint: "/currency_conversions/search"
+
+search:
+  query: "Samsung Galaxy S24"
+  condition: "new"
+  page_size: 50
+  max_records: 500
+
+bigquery:
+  project_id: "tu-proyecto-bigquery"
+  dataset_id: "meli_samsung"
+  tables:
+    items: "items"
+    sellers: "sellers"
+    shipping: "shipping"

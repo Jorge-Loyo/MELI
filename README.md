@@ -1,14 +1,33 @@
 # ETL Samsung Galaxy - Mercado Libre
 
-ETL en Python que extrae publicaciones de Samsung Galaxy S24 de la API pública de Mercado Libre Argentina, transforma los datos y los carga en BigQuery para su análisis.
+![Python](https://img.shields.io/badge/Python-3.10+-blue)
+![BigQuery](https://img.shields.io/badge/BigQuery-Google%20Cloud-orange)
+![Status](https://img.shields.io/badge/Status-En%20desarrollo-yellow)
+
+ETL en Python que extrae publicaciones de Samsung Galaxy S24 de la API pública de Mercado Libre Argentina, transforma los datos y los carga en BigQuery para su análisis y visualización en Looker Studio.
+
+## Contexto del Desafío
+
+El desafío consiste en desarrollar una automatización del tipo ETL que acceda a las APIs públicas de Mercado Libre para responder preguntas de negocio sobre publicaciones de Samsung Galaxy en Argentina:
+
+1. ¿Hay algún vendedor con múltiples publicaciones?
+2. ¿Cuál es el promedio de ventas por seller?
+3. ¿Cuál es el precio promedio en dólares?
+4. ¿Qué porcentaje de artículos tiene garantía?
+5. ¿Qué métodos de shipping ofrecen?
 
 ## Arquitectura
 
 ```
 API Mercado Libre
       │
+      ├── /sites/MLA/search     ← búsqueda paginada de 50 registros
+      ├── /items/bulk            ← detalle de items (hasta 20 por llamada)
+      ├── /users/bulk            ← detalle de vendedores (hasta 20 por llamada)
+      └── /currency_conversions  ← tipo de cambio ARS → USD
+      │
       ▼
-  extract.py       ← paginado de 50 registros, auth OAuth, bulk items/sellers
+  extract.py       ← auth OAuth con refresh_token automático
       │
       ▼
   transform.py     ← modela 3 tablas: items, sellers, shipping
@@ -22,6 +41,9 @@ API Mercado Libre
   ├── items
   ├── sellers
   └── shipping
+      │
+      ▼
+  Looker Studio    ← dashboard de visualización
 ```
 
 ## Modelo de Datos
@@ -71,8 +93,8 @@ API Mercado Libre
 ## Instalación
 
 ```bash
-git clone https://github.com/tu-usuario/etl-meli-samsung.git
-cd etl-meli-samsung
+git clone https://github.com/Jorge-Loyo/MELI.git
+cd MELI
 pip install -r requirements.txt
 ```
 
@@ -80,32 +102,30 @@ pip install -r requirements.txt
 
 ### 1. Variables de entorno
 
-Copiá el archivo de ejemplo y completá con tus credenciales:
-
 ```bash
 cp .env.example .env
 ```
 
-Editá `.env`:
+Completá `.env` con tus credenciales:
 
 ```env
 MELI_APP_ID=tu_app_id
 MELI_SECRET_KEY=tu_secret_key
 MELI_REFRESH_TOKEN=tu_refresh_token
 
-GOOGLE_APPLICATION_CREDENTIALS=Doc/meli-514816-16a92379b1d3.json
-BIGQUERY_PROJECT_ID=meli-514816
+GOOGLE_APPLICATION_CREDENTIALS=Doc/service_account.json
+BIGQUERY_PROJECT_ID=tu-proyecto-bigquery
 ```
 
 ### 2. Obtener el primer refresh_token de Mercado Libre
 
-**Paso 1** — Autorizá la app en el navegador (reemplazá `APP_ID` y `REDIRECT_URI`):
+**Paso 1** — Autorizá la app en el navegador:
 
 ```
 https://auth.mercadolibre.com.ar/authorization?response_type=code&client_id=APP_ID&redirect_uri=REDIRECT_URI
 ```
 
-**Paso 2** — Copiá el `code` de la URL de redirección (`?code=TG-XXXXXXXX`) y hacé el POST:
+**Paso 2** — Con el `code` de la URL de redirección (`?code=TG-XXXXXXXX`):
 
 ```bash
 curl -X POST https://api.mercadolibre.com/oauth/token \
@@ -130,11 +150,11 @@ python setup_bigquery.py
 python main.py
 ```
 
-El ETL extrae hasta 500 publicaciones nuevas de Samsung Galaxy S24, las transforma y las carga en BigQuery. Cada ejecución agrega registros con un nuevo `JOB_RUN`.
+El ETL extrae hasta 500 publicaciones nuevas de Samsung Galaxy S24, las transforma y las carga en BigQuery. Cada ejecución agrega registros con un nuevo `JOB_RUN`, manteniendo el historial completo.
 
 ## Configuración del ETL
 
-Editá `config/config.yaml` para ajustar parámetros:
+Editá `config/config.yaml` para ajustar parámetros sin tocar el código:
 
 ```yaml
 search:
@@ -217,38 +237,41 @@ ORDER BY cantidad DESC;
 
 ## Decisiones técnicas
 
-- **BigQuery** como destino por integración nativa con Looker Studio
-- **WRITE_APPEND** en cada carga para mantener historial de ejecuciones
-- **Bulk endpoints** (`/items/bulk`, `/users/bulk`) para minimizar llamadas a la API
-- **refresh_token** para renovar el access_token automáticamente en cada ejecución
-- **config.yaml** para centralizar parámetros sin tocar el código
-- **Variables de entorno** para todas las credenciales, nunca hardcodeadas
+- **BigQuery** como destino por integración nativa con Looker Studio y escalabilidad
+- **WRITE_APPEND** en cada carga para mantener historial de ejecuciones y poder comparar entre corridas
+- **Bulk endpoints** (`/items/bulk`, `/users/bulk`) para minimizar llamadas a la API y evitar rate limiting
+- **refresh_token** para renovar el access_token automáticamente en cada ejecución sin intervención manual
+- **config.yaml** para centralizar parámetros sin tocar el código fuente
+- **Variables de entorno** para todas las credenciales, nunca hardcodeadas en el código
+- **JOB_RUN** como campo de auditoría en todas las tablas para identificar cada ejecución del ETL
 
 ## Oportunidades de mejora
 
-- Orquestar con Apache Airflow o Cloud Scheduler para ejecución periódica
-- Agregar reintentos con backoff exponencial en las llamadas a la API
-- Particionar las tablas de BigQuery por `job_run` para optimizar queries
-- Extender a otros modelos de Samsung Galaxy (S23, S22, A54, etc.)
+- Orquestar con **Cloud Scheduler** o **Apache Airflow** para ejecución periódica automática
+- Agregar reintentos con **backoff exponencial** en las llamadas a la API
+- **Particionar** las tablas de BigQuery por `job_run` para optimizar el costo de queries
+- Extender a otros modelos de Samsung Galaxy (S23, S22, A54, etc.) via `config.yaml`
+- Agregar **tests unitarios** para las funciones de transformación
+- Implementar **alertas** cuando el ETL falla via Cloud Monitoring
 
 ## Estructura del proyecto
 
 ```
 ├── config/
-│   └── config.yaml
+│   └── config.yaml          ← parámetros del ETL
 ├── etl/
-│   ├── extract.py
-│   ├── transform.py
-│   └── load.py
+│   ├── extract.py           ← extracción con auth OAuth y paginado
+│   ├── transform.py         ← transformación y modelado de datos
+│   └── load.py              ← carga a BigQuery
 ├── sql/
-│   ├── ddl.sql
-│   └── queries.sql
+│   ├── ddl.sql              ← CREATE TABLE statements
+│   └── queries.sql          ← queries analíticas del desafío
 ├── Doc/
-│   └── meli-514816-16a92379b1d3.json  ← NO subir a GitHub
-├── .env                                ← NO subir a GitHub
-├── .env.example
+│   └── service_account.json ← NO subir a GitHub
+├── .env                     ← NO subir a GitHub
+├── .env.example             ← template de variables de entorno
 ├── .gitignore
-├── main.py
-├── setup_bigquery.py
+├── main.py                  ← entry point del ETL
+├── setup_bigquery.py        ← crea dataset y tablas en BigQuery
 └── requirements.txt
 ```
